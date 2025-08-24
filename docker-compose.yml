@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:13
+    container_name: stock_database
+    environment:
+      POSTGRES_DB: stock_data
+      POSTGRES_USER: stockuser
+      POSTGRES_PASSWORD: stockpass123
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stockuser -d stock_data"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  airflow-db:
+    image: postgres:13
+    container_name: airflow_database
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: airflow_webserver
+    depends_on:
+      - airflow-db
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+      - AIRFLOW__CORE__FERNET_KEY=ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=
+      - AIRFLOW__WEBSERVER__DEFAULT_USER_USERNAME=admin
+      - AIRFLOW__WEBSERVER__DEFAULT_USER_PASSWORD=admin
+      - AIRFLOW__WEBSERVER__DEFAULT_USER_FIRSTNAME=Admin
+      - AIRFLOW__WEBSERVER__DEFAULT_USER_LASTNAME=User
+      - AIRFLOW__WEBSERVER__DEFAULT_USER_EMAIL=admin@example.com
+      - ALPHA_VANTAGE_API_KEY=R0ZUAK6WZTD9B1MZ
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=stock_data
+      - POSTGRES_USER=stockuser
+      - POSTGRES_PASSWORD=stockpass123
+      - POSTGRES_PORT=5432
+    env_file:
+      - .env
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./logs:/opt/airflow/logs
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "
+        airflow db init &&
+        airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin &&
+        airflow webserver --port 8080
+      "
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: airflow_scheduler
+    depends_on:
+      - airflow-db
+      - postgres
+      - airflow-webserver
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+      - AIRFLOW__CORE__FERNET_KEY=ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=
+      - ALPHA_VANTAGE_API_KEY=R0ZUAK6WZTD9B1MZ
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=stock_data
+      - POSTGRES_USER=stockuser
+      - POSTGRES_PASSWORD=stockpass123
+      - POSTGRES_PORT=5432
+    env_file:
+      - .env
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./logs:/opt/airflow/logs
+    command: airflow scheduler
+
+volumes:
+  postgres_data:
+  airflow_postgres_data:
